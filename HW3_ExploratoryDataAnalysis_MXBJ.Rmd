@@ -1,0 +1,250 @@
+---
+title: "HW3_ExploratoryDataAnalysis_MXBJ"
+output: html_document
+---
+
+# HW3_ExploratoryDataAnalysis_MXBJ
+# Dec 7 2018
+# MXBJ
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Installation of flowcatchR and calling necessary libraries
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("flowcatchR", version = "3.8")
+```
+
+```{r}
+library("flowcatchR")
+library("ggplot2")
+```
+
+```{r}
+# Load image
+# pre-drug image
+fullData_predrug_long <- read.Frames(image.files="/Users/mbj268/Documents/PDA/Project/predrug-sp1-cropped.tif", nframes=1) 
+inspect.Frames(fullData_predrug_long, nframes=36, display.method="raster")
+
+# post-drug image
+fullData_postdrug_long <- read.Frames(image.files="/Users/mbj268/Documents/PDA/Project/postdrug-sp3-cropped-long.tif", nframes=1)
+inspect.Frames(fullData_postdrug_long, nframes=36, display.method="raster")
+
+```
+
+```{r}
+# Obtain images of the red channel
+# pre-drug image
+redchannel_predrug_long <- channel.Frames(fullData_predrug_long, mode="red")
+inspect.Frames(redchannel_predrug_long, nframes=36, display.method="raster")
+# post-drug image
+redchannel_postdrug_long <- channel.Frames(fullData_postdrug_long, mode="red")
+inspect.Frames(redchannel_postdrug_long, nframes=36, display.method="raster")
+```
+
+```{r}
+# Increasing the signal-to-noise 
+# pre-drug image
+preprocessed_predrug_long <- preprocess.Frames(redchannel_predrug_long,
+                                    brush.size=2, brush.shape="disc",
+                                    at.offset=0.2, at.wwidth=7, at.wheight=7,
+                                    kern.size=3, kern.shape="disc",
+                                    ws.tolerance=1, ws.radius=1)
+inspect.Frames(preprocessed_predrug_long, nframes=36, display.method="raster")
+
+# post-drug image
+preprocessed_postdrug_long <- preprocess.Frames(redchannel_postdrug_long,
+                                    brush.size=3, brush.shape="disc",
+                                    at.offset=0.06, at.wwidth=7, at.wheight=7,
+                                    kern.size=3, kern.shape="disc",
+                                    ws.tolerance=1, ws.radius=1)
+
+inspect.Frames(preprocessed_postdrug_long, nframes=36, display.method="raster")
+
+```
+
+```{r}
+# Extract particles of interest
+# pre-drug image
+sampleparticles_predrug_long <- particles(redchannel_predrug_long, preprocessed_predrug_long)
+
+# post-drug image
+sampleparticles_postdrug_long <- particles(redchannel_postdrug_long, preprocessed_postdrug_long)
+```
+
+```{r}
+# Visualize selected particles 
+# pre-drug image
+painted_predrug_long <- add.contours(raw.frames=fullData_predrug_long,
+                                 binary.frames=preprocessed_predrug_long,
+                                 mode="particles")
+inspect.Frames(painted_predrug_long, nframes=36, display.method="raster")
+
+# post-drug image
+painted_postdrug_long <- add.contours(raw.frames=fullData_postdrug_long,
+                                 binary.frames=preprocessed_postdrug_long,
+                                 mode="particles")
+inspect.Frames(painted_postdrug_long, nframes=36, display.method="raster")
+```
+
+```{r}
+# Extract area, x coordinate and y coordinate of particles detected
+# Organize image data and initialize variables for the loop
+parts<-list()
+parts[[1]]<-sampleparticles_predrug_long
+parts[[2]]<-sampleparticles_postdrug_long
+filtered_area<-list()
+filtered_radius<-list()
+filtered_eccentricity<-list()
+
+# 1st for loop: for all image sequences
+ for (k in 1:2) {
+# Initialize variables 
+  radius <- matrix(data=NA, nrow=length(parts[[k]]), ncol=50)
+  eccentricity <- matrix(data=NA, nrow=length(parts[[k]]), ncol=50)
+  xcoord <- matrix(data=NA, nrow=length(parts[[k]]), ncol=50)
+  ycoord <- matrix(data=NA, nrow=length(parts[[k]]), ncol=50)
+  area <- matrix(data=NA, nrow=length(parts[[k]]), ncol=50)
+  
+    # 2nd for loop: for all frames
+  for(i in 1:length(parts[[k]])) {  
+    if(length(parts[[k]][[i]][[1]])>0){
+    radius[i, 1:length(parts[[k]][[i]][[8]])] <- parts[[k]][[i]][[8]] 
+    eccentricity[i, 1:length(parts[[k]][[i]][[4]])] <- parts[[k]][[i]][[4]] 
+    xcoord[i, 1:length(parts[[k]][[i]][[1]])] <- parts[[k]][[i]][[1]] 
+    ycoord[i,1:length(parts[[k]][[i]][[2]])] <- parts[[k]][[i]][[2]]
+    area[i,1:length(parts[[k]][[i]][[6]])] <- parts[[k]][[i]][[6]] 
+    }
+    else{
+    radius[i] <- 0 
+    eccentricity[i] <-0
+    xcoord[i] <- 0
+    ycoord[i] <- 0
+    area[i] <- 0
+    }}
+ 
+ # Keep the max for each frame 
+  r <- matrix(data=NA, nrow=length(parts[[k]]), ncol=1)
+  e <- matrix(data=NA, nrow=length(parts[[k]]), ncol=1)  
+  x <- matrix(data=NA, nrow=length(parts[[k]]), ncol=1)
+  y <- matrix(data=NA, nrow=length(parts[[k]]), ncol=1)
+  A <- matrix(data=NA, nrow=length(parts[[k]]), ncol=1)
+  
+  for (j in 1:length(area)) { 
+  r[j] <- max(radius[j])
+  e[j] <- max(eccentricity[j])
+  A[j]<- max(area[j])
+  x[j]<- max(xcoord[j])
+  y[j]<- max(ycoord[j])
+  }
+
+  # Filter frames by area: keep particles that fall within a threshold
+  area_indx<-which(A>10)
+  area_r1<-r[area_indx]
+  area_e1<-e[area_indx]
+  area_A1<-A[area_indx]
+  area_x1<-x[area_indx]
+  area_y1<-y[area_indx]
+  
+  filtered_area[[k]]<-data.frame(area=area_A1, x=area_x1, y=area_y1, ex=area_e1, r=area_r1 )
+  
+    # Filter frames by radius: keep particles that fall within a threshold
+  radius_indx<-which(r>1)
+  radius_r1<-r[radius_indx]
+  radius_e1<-e[radius_indx]
+  radius_A1<-A[radius_indx]
+  radius_x1<-x[radius_indx]
+  radius_y1<-y[radius_indx]
+  
+  filtered_radius[[k]]<-data.frame(area=radius_A1, x=radius_x1, y=radius_y1, ex=radius_e1, r=radius_r1 )
+  
+    # Filter frames by eccentricity: keep particles that fall within a threshold
+  eccentricity_indx<-which(e>0.7)
+  eccentricity_r1<-r[eccentricity_indx]
+  eccentricity_e1<-e[eccentricity_indx]
+  eccentricity_A1<-A[eccentricity_indx]
+  eccentricity_x1<-x[eccentricity_indx]
+  eccentricity_y1<-y[eccentricity_indx]
+  
+  filtered_eccentricity[[k]]<-data.frame(area=eccentricity_A1, x=eccentricity_x1, y=eccentricity_y1, ex=eccentricity_e1, r=eccentricity_r1 )
+  
+
+ } 
+```
+
+```{r}
+
+# View histogram of x position to eliminate outliers  
+
+pre_x_area<-filtered_area[[1]][[2]]
+pre_y_area<-filtered_area[[1]][[3]]
+pre_x_radius<-filtered_radius[[1]][[2]]
+pre_y_radius<-filtered_radius[[1]][[3]]
+pre_x_eccentricity<-filtered_eccentricity[[1]][[2]]
+pre_y_eccentricity<-filtered_eccentricity[[1]][[3]]
+
+post_x_area<-filtered_area[[2]][[2]]
+post_y_area<-filtered_area[[2]][[3]]
+post_x_radius<-filtered_radius[[2]][[2]]
+post_y_radius<-filtered_radius[[2]][[3]]
+post_x_eccentricity<-filtered_eccentricity[[2]][[2]]
+post_y_eccentricity<-filtered_eccentricity[[2]][[3]]
+
+# View histogram
+# Pre-drug, x position 
+# Filter x position by area
+ggplot(data = data.frame(pre_x_area)) +
+    geom_histogram(mapping = aes(x = pre_x_area))+ labs(x="x position")+ggtitle("Pre-drug filtered by area")+theme(plot.title = element_text(hjust = 0.5))
+
+ # Filter x position by radius
+ggplot(data = data.frame(pre_x_radius)) +
+    geom_histogram(mapping = aes(x = pre_x_radius))+ labs(x="x position")+ggtitle("Pre-drug filtered by radius")+theme(plot.title = element_text(hjust = 0.5))
+
+ # Filter x position by eccentricity
+ggplot(data = data.frame(pre_x_eccentricity)) +
+    geom_histogram(mapping = aes(x = pre_x_eccentricity))+ labs(x="x position")+ggtitle("Pre-drug filtered by eccentricity")+theme(plot.title = element_text(hjust = 0.5))
+          
+# Post-drug, x position 
+ # Filter x position by area
+ggplot(data = data.frame(post_x_area)) +
+    geom_histogram(mapping = aes(x = post_x_area))+ labs(x="x position")+ggtitle("Post-drug (5 min) filtered by area")+theme(plot.title = element_text(hjust = 0.5))
+
+ # Filter x position by radius
+ggplot(data = data.frame(post_x_radius)) +
+    geom_histogram(mapping = aes(x = post_x_radius))+ labs(x="x position")+ggtitle("Post-drug (5 min) filtered by radius")+theme(plot.title = element_text(hjust = 0.5))
+
+ # Filter x position by eccentricity
+ggplot(data = data.frame(post_x_eccentricity)) +
+    geom_histogram(mapping = aes(x = post_x_eccentricity))+ labs(x="x position")+ggtitle("Post-drug (5 min) filtered by eccentricity")+theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+  # xy positions 
+
+# Pre-drug
+# Filter xy position by area
+xy_pre_area<-data.frame(x=pre_x_area,y=pre_y_area)  
+ggplot(data = data.frame(xy_pre_area)) + geom_point(mapping = aes(x = x, y = y))+ggtitle("Pre-drug positions filtered by area ")+theme(plot.title = element_text(hjust = 0.5)) 
+
+ # Filter x position by radius
+xy_pre_radius<-data.frame(x=pre_x_radius,y=pre_y_radius)  
+ggplot(data = data.frame(xy_pre_radius)) + geom_point(mapping = aes(x = x, y = y))+ggtitle("Pre-drug positions filtered by radius ")+theme(plot.title = element_text(hjust = 0.5)) 
+ # Filter x position by eccentricity
+xy_pre_eccentricity<-data.frame(x=pre_x_eccentricity,y=pre_y_eccentricity)  
+ggplot(data = data.frame(xy_pre_eccentricity)) + geom_point(mapping = aes(x = x, y = y))+ggtitle("Pre-drug positions filtered by eccentricity ")+theme(plot.title = element_text(hjust = 0.5)) 
+
+# Post-drug
+# Filter xy position by area
+xy_post_area<-data.frame(x=pre_x_area,y=pre_y_area)  
+ggplot(data = data.frame(xy_pre_area)) + geom_point(mapping = aes(x = x, y = y))+ggtitle("Post drug (5 min) positions filtered by area ")+theme(plot.title = element_text(hjust = 0.5)) 
+
+ # Filter x position by radius
+xy_post_radius<-data.frame(x=pre_x_radius,y=pre_y_radius)  
+ggplot(data = data.frame(xy_pre_radius)) + geom_point(mapping = aes(x = x, y = y))+ggtitle("Post drug (5 min) positions filtered by radius ")+theme(plot.title = element_text(hjust = 0.5)) 
+ # Filter x position by eccentricity
+xy_post_eccentricity<-data.frame(x=pre_x_eccentricity,y=pre_y_eccentricity)  
+ggplot(data = data.frame(xy_pre_area)) + geom_point(mapping = aes(x = x, y = y))+ggtitle("Post drug (5 min) positions filtered by eccentricity ")+theme(plot.title = element_text(hjust = 0.5)) 
+```
